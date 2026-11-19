@@ -221,3 +221,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local editor state
+.idea/
+.vscode/
+*.swp
+*.tmp
