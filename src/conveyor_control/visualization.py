@@ -70,14 +70,36 @@ def advance_conveyor_scene(p, scene: dict[str, object], row: dict[str, float], d
 
 
 def replay_pybullet(rows: list[dict[str, float]], speed_scale: float = 1.0) -> None:
-    """Play a completed simulation in a PyBullet GUI until the user closes it."""
+    """Play a completed simulation in a PyBullet GUI until the user closes it.
+
+    Prerequisites
+    -------------
+    * ``pybullet`` must be installed: ``pip install pybullet``
+    * On Windows with Defender Application Control / AppLocker you may need to
+      either (a) run from an Administrator prompt, (b) add the venv's
+      ``pybullet*.pyd`` DLL to an allow-list, or (c) copy the project to a
+      path that is already allow-listed (e.g. ``C:\\Projects\\``).
+    """
     if len(rows) < 2:
         raise ValueError("At least two simulation rows are required for visualization")
     try:
         import pybullet as p
         import pybullet_data
     except ImportError as exc:
-        raise RuntimeError(f"PyBullet could not be imported ({exc}). Install it and allow its native extension to run to use the visual scene.") from exc
+        msg = str(exc)
+        if "DLL load failed" in msg or "Application Control" in msg:
+            raise RuntimeError(
+                "PyBullet's native DLL was blocked by Windows Application Control policy.\n"
+                "Fix options:\n"
+                "  1. Run the project from an Administrator command prompt.\n"
+                "  2. Add the venv site-packages folder to your WDAC/AppLocker allow-list.\n"
+                "  3. Move the project to a trusted path (e.g. C:\\Projects\\) and re-create the venv there.\n"
+                f"Original error: {exc}"
+            ) from exc
+        raise RuntimeError(
+            f"PyBullet could not be imported ({exc}).\n"
+            "Install it with:  .venv\\Scripts\\python.exe -m pip install pybullet"
+        ) from exc
     cid = p.connect(p.GUI)
     if cid < 0:
         raise RuntimeError("PyBullet GUI could not be opened")

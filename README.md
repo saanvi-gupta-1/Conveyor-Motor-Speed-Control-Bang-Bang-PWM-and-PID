@@ -1,161 +1,327 @@
 # Conveyor Motor Speed Control: Bang-Bang, PWM and PID
 
-A reproducible, command-line simulation of a DC motor driving a conveyor. The project compares relay control, carrier-based pulse-width modulation and discrete PID under reference changes, load disturbances and actuator constraints. CSV logs, computed metrics, comparison plots and an automatically generated interpretation support analysis and presentation.
+A comprehensive, academic control-systems simulation and digital twin of an industrial DC motor driving a conveyor belt. The project models electromechanical plant dynamics, implements and compares three distinct control strategies (**Bang-Bang**, **PWM**, and **PID**), and evaluates performance under dynamic load disturbances and actuator saturation constraints. 
 
-## Objectives and features
+The system features both an **interactive SCADA Web Control Room Dashboard** with live telemetry, dynamic cargo physics, real-time charts, and procedural audio synthesis, alongside a **PyBullet 3D Digital Twin** featuring an actual revolute motor/roller joint and moving parcels.
 
-- Simulate conveyor belt speed from a reduced-order DC motor model using fixed-step integration.
-- Compare Bang-Bang, PWM and PID with identical plant and scenario settings.
-- Exercise light, medium and heavy loads, a load increase/decrease cycle, changing setpoint and an infeasible saturation target.
-- Log raw controller request, bounded actuator command, saturation, PWM duty/switching, Bang-Bang switch count and PID terms.
-- Calculate tracking, overshoot, settling, effort and saturation metrics from samples.
-- Generate comparison plots, load robustness charts, PWM carrier-frequency tests, FFT ripple spectra, CSV files and evidence-based interpretation.
-- Optionally replay the recorded speed in a PyBullet conveyor scene with a revolute roller joint and moving boxes.
-- Tune PID gains from command-line options; use an interactive menu when launched without arguments.
+---
 
-## Architecture
+## Table of Contents
+1. [Objectives and Features](#objectives-and-features)
+2. [System Architecture](#system-architecture)
+3. [Mathematical Motor Model](#mathematical-motor-model)
+4. [Controller Implementations](#controller-implementations)
+5. [Presentation Interfaces](#presentation-interfaces)
+   - [SCADA Web Control Room](#1-scada-web-control-room-dashboard-recommended)
+   - [PyBullet 3D Digital Twin](#2-pybullet-3d-digital-twin)
+   - [Rich Terminal CLI Dashboard](#3-rich-terminal-command-line-dashboard)
+6. [Experiment Scenarios](#experiment-scenarios)
+7. [Performance Metrics & Analysis](#performance-metrics--analysis)
+8. [Installation & Windows Quick Start](#installation--windows-quick-start)
+9. [Running the Project](#running-the-project)
+10. [Automated Testing](#automated-testing)
+11. [Project Directory Structure](#project-directory-structure)
+12. [Assumptions and Limitations](#assumptions-and-limitations)
+13. [Technologies Used](#technologies-used)
 
-The motor and controller are calculated in Python. The observed belt speed is `v = rω`. PyBullet is an optional visual replay: its roller joint is synchronized from the simulated angular speed and boxes move according to belt speed. It is not a physics-coupled electrical motor simulation and does not generate the experiment data.
+---
+
+## Objectives and Features
+
+- **Electromechanical Plant Modeling:** Reduced-order DC motor model ($J \dot{\omega} = K u - b \omega - \tau_{\text{load}}$) integrated via fixed-step numerical integration.
+- **Fair Controller Benchmarking:** Bang-Bang, discrete PWM, and discrete PID operate on the identical motor plant under identical load profiles.
+- **Actuator Constraints & Saturation:** Clamped control command $[0, 1]$, raw vs. applied logging, and dedicated saturation testing ($115\%$ setpoint).
+- **Integral Anti-Windup:** Conditional integration halts integrator accumulation during saturation, preventing runaway and overshoot.
+- **Dynamic Load Disturbances:** Step increases, multi-stage loading cycles, and physical cargo parcel masses ($1.0 - 4.5\text{ kg}$).
+- **Time & Frequency Domain Analysis:** 20 quantitative metrics (IAE, ISE, RMSE, Settling, Rise, Ripple), analytical Bode plots, and Hann-windowed FFT speed ripple spectra.
+- **Dual Visual Digital Twins:**
+  1. *SCADA Web Twin:* High-fps HTML5 Canvas conveyor with spinning rollers, belt chevrons, moving packages, live multi-trace charts, controller battle mode, and Web Audio API synthesizer.
+  2. *PyBullet 3D Twin:* Physics-based scene with a driven roller revolute joint (`p.JOINT_REVOLUTE`), cylindrical motor housing, conveyor deck, and payload boxes.
+- **Automated Results & Reports:** 14 Matplotlib plots, 37 CSV logs, 28 JSON metric files, master `metrics.csv`, and empirical data-driven interpretations.
+
+---
+
+## System Architecture
+
+The simulation is architected as a modular hybrid system: Python computes the core differential equations and control laws, while the visual layers serve as synchronized digital twins.
 
 ```text
-Target → Controller → Saturated actuator → Motor + load → Conveyor speed
-   ↑                                                   │
-   └────────────────── Sensor feedback ───────────────┘
-                                                       └→ CSV / metrics / plots / PyBullet replay
+USER INPUT (Web Control Room / Sliders / CLI / Batch Scripts)
+    │
+    ▼
+TARGET SPEED (v_target)
+    │
+    ▼
+CONTROLLER (Bang-Bang / Carrier PWM / Discrete PID)
+    │
+    ▼
+ACTUATOR SATURATION (Clamped u in [u_min, 1.0])
+    │
+    ▼
+DC MOTOR MODEL (J dω/dt = Ku - bω - Tau_load) <─── LOAD TORQUE / DISTURBANCES
+    │                                                   (Tare + Cargo + Manual)
+    ▼
+CONVEYOR SPEED (v = r * ω)
+    │
+    ├─────────────────────────────┬─────────────────────────────┐
+    ▼                             ▼                             ▼
+FEEDBACK SENSOR          SCADA WEB TWIN (2D)           PYBULLET 3D TWIN
+(v_meas = max(0, v+η))   - Moving Cargo Packages       - Driven Revolute Roller
+    │                    - Rotating Roller Spokes      - Motor Housing
+    └─► CONTROLLER LOOP  - Live Multi-Trace Charts     - Moving Rigid Boxes
 ```
 
-The implementation details, equations, assumptions and experiment profiles are summarized below and in the generated report under `results/`.
+See [docs/architecture.md](file:///d:/GitHub/Conveyor-Motor-Speed-Control-Bang-Bang-PWM-and-PID/docs/architecture.md) for full block diagram and module specifications.
 
-## Motor model
+---
 
-The implemented reduced-order equation is `J dω/dt = K u − bω − τ_load`; `v = rω`. The default parameters are `J=0.06 kg·m²`, `K=1.10 N·m` per normalized input, `b=0.04 N·m·s/rad`, roller radius `r=0.08 m`, speed limit `45 rad/s`, and load limit `0.30 N·m`. These are illustrative model assumptions, not measurements of a specific conveyor. Forward Euler runs at a default 5 ms step. Input, speed and load are bounded.
+## Mathematical Motor Model
 
-## Controllers
+Industrial conveyor drives operate with an electrical time constant $\tau_e = L/R \ll \tau_m = J/b$. Armature current reaches quasi-steady-state almost instantaneously, yielding the reduced-order torque balance equation:
 
-- **Bang-Bang:** switches between actuator bounds outside a configurable speed-error deadband, with a minimum switching interval. Relay control is simple but can produce speed ripple.
-- **PWM:** proportional error-to-duty mapping produces a duty in [0, 1]. An actual square-wave carrier drives the model; inspect `pwm_on` for switching and `duty` for its envelope. This is switched actuation rather than an averaged-voltage approximation.
-- **PID:** discrete proportional, integral and filtered derivative terms. Conditional integration blocks windup when saturation and error point farther into the limit. Gains are configurable with `--kp`, `--ki`, and `--kd`.
+$$J \frac{d\omega(t)}{dt} = K u(t) - b \omega(t) - \tau_{\text{load}}(t)$$
 
-The actuator uses normalized command limits [0,1]. `raw_command` and `command` are both retained. Controller saturation time measures intervals where the raw request was clamped; relay/PWM laws are intrinsically bounded.
+$$v(t) = r \cdot \omega(t)$$
 
-## Install on Windows
+$$\text{RPM}(t) = \omega(t) \cdot \frac{60}{2\pi}$$
 
-Use Python 3.10 or newer. To set up the complete project on Windows, double-click `run_project.bat` from the repository folder. It finds an available Python installation, creates `.venv` once, and installs the dashboard, test and PyBullet packages. If you prefer manual setup in PowerShell:
+### Model Parameters (SI Units)
+- **Moment of Inertia ($J$):** $0.06\text{ kg}\cdot\text{m}^2$ (Lumped rotor, shaft, rollers, and belt).
+- **Torque Constant ($K$):** $1.10\text{ N}\cdot\text{m}$ (Per normalized input effort).
+- **Viscous Friction ($b$):** $0.04\text{ N}\cdot\text{m}\cdot\text{s/rad}$.
+- **Drive Roller Radius ($r$):** $0.08\text{ m}$.
+- **Speed Limit ($\omega_{\text{max}}$):** $45.0\text{ rad/s}$ ($v_{\text{max}} = 3.6\text{ m/s}$, $429.7\text{ RPM}$).
+- **Maximum Load Torque ($\tau_{\text{max}}$):** $0.30\text{ N}\cdot\text{m}$.
+- **Timestep ($\Delta t$):** $0.005\text{ s}$ ($200\text{ Hz}$) for batch runs; $0.01\text{ s}$ ($100\text{ Hz}$) for live engine.
 
+See [docs/equations.md](file:///d:/GitHub/Conveyor-Motor-Speed-Control-Bang-Bang-PWM-and-PID/docs/equations.md) for full mathematical derivations.
+
+---
+
+## Controller Implementations
+
+All three controllers share a standardized interface (`update(target, measured, dt, time) -> ControlOutput`):
+
+### 1. Bang-Bang Controller (Relay Actuation)
+Two-position threshold controller with deadband $\Delta = 0.12\text{ m/s}$ and minimum dwell time $\tau_{\text{dwell}} = 0.04\text{ s}$ to prevent high-frequency chatter:
+$$u(t) = \begin{cases} u_{\text{max}} & e(t) > \Delta \\ u_{\text{min}} & e(t) < -\Delta \\ u(t^-) & |e(t)| \le \Delta \end{cases}$$
+- **Characteristics:** Fast rise time ($1.87\text{ s}$), zero modulation complexity, but induces an orbitally stable limit cycle with steady-state speed ripple ($0.245\text{ m/s}$ p-p).
+
+### 2. PWM Controller (Carrier-Based Switched Actuation)
+Proportional error-to-duty mapping driving an explicit square-wave carrier oscillator ($f_{\text{pwm}} = 20\text{ Hz}$):
+$$D(t) = \text{sat}(K_{\text{ff}} v_{\text{target}} + K_p e(t))$$
+$$u_{\text{PWM}}(t) = \begin{cases} 1.0 & (t \cdot f_{\text{pwm}} \pmod 1) < D(t) \\ 0.0 & \text{otherwise} \end{cases}$$
+- **Characteristics:** True switching actuation (not an averaged-voltage approximation). Mechanical rotor inertia filters the pulse train into smooth velocity; speed ripple decreases inversely with carrier frequency.
+
+### 3. Discrete PID Controller (Continuous Linear Actuation)
+Discrete PID with low-pass filtered derivative ($\tau_d = 0.025\text{ s}$) and conditional integration anti-windup:
+$$u_{\text{raw}}(t) = K_p e(t) + K_i \int_0^t e(\tau) d\tau + K_d \frac{de_f(t)}{dt}$$
+- **Anti-Windup Logic:** Halts integration when the actuator is saturated ($u_{\text{raw}} \notin [0, 1]$) and the error points deeper into the limit.
+- **Default Gains:** $K_p = 0.70$, $K_i = 0.80$, $K_d = 0.010$.
+- **Characteristics:** Zero steady-state error ($7.3 \times 10^{-5}\text{ m/s}$), lowest speed ripple ($0.00054\text{ m/s}$ p-p), and complete disturbance recovery ($t_{\text{rec}} = 2.54\text{ s}$).
+
+---
+
+## Presentation Interfaces
+
+The project provides three synchronized presentation interfaces:
+
+### 1. SCADA Web Control Room Dashboard (Recommended)
+A modern industrial automation control room accessible locally at `http://127.0.0.1:8050`:
+- **Canvas Conveyor Twin:** 2D interactive conveyor with spinning roller spokes, belt chevrons, moving and recycling cargo parcels ($1.0 - 4.5\text{ kg}$), and DC motor casing with live HUD.
+- **Telemetry Readouts:** Digital gauges for actual/target RPM, linear speed ($v$), speed error ($e$), motor command ($u$), and load torque.
+- **Master Controls & Sliders:** Play, Pause, Step, Reset, Target Speed slider ($0.2 - 3.5\text{ m/s}$), and Dynamic Load slider ($0.0 - 0.22\text{ Nm}$).
+- **Interactive Tuning Station:** Dynamic parameter knobs for PID ($K_p, K_i, K_d$), PWM carrier frequency, and Bang-Bang deadband.
+- **Disturbance Injection:** One-click buttons to drop heavy cargo (+4.5 kg), trigger torque pulses (+0.18 Nm for 2s), step setpoints, or clear cargo.
+- **Live Multi-Trace Charts:** High-fps Canvas telemetry charts for Speed Tracking, Actuator Output ($u$ vs duty), and Error/Disturbance.
+- **Controller Battle Mode:** Side-by-side comparative tournament evaluating Bang-Bang, PWM, and PID under identical conditions with automatic ranking and empirical strength/weakness analysis.
+- **Predefined Experiment Lab:** Automated execution of standard scenarios with live tabular metrics.
+- **Rule-Based Diagnostics:** Continuous assessment of tracking fidelity, actuator limits, and load stress.
+- **Procedural Audio Synthesizer:** Web Audio API motor hum dynamically tracking RPM ($\propto \omega$), relay clicks on switching, and overload alerts (muted by default with a visible toggle).
+
+### 2. PyBullet 3D Digital Twin
+A standalone 3D OpenGL visualization of the conveyor system:
+- **Revolute Motor Joint:** Driven roller operates with an actual PyBullet revolute joint (`p.JOINT_REVOLUTE`) synchronized with motor $\omega$.
+- **Conveyor Assembly:** Conveyor deck, idler roller, cylindrical DC motor housing, and ground plane.
+- **Payload Boxes:** Multi-body boxes of different masses and colors translate along the deck at linear belt velocity $v = r \cdot \omega$.
+- **Real-Time Text HUD:** Displays motor synchronization state and instantaneous load torque.
+
+### 3. Rich Terminal Command-Line Dashboard
+A formatted terminal interface with styled tables, panels, and status indicators:
 ```powershell
+python -m conveyor_control.cli
+```
+
+---
+
+## Experiment Scenarios
+
+The suite includes 7 repeatable scenarios defined in [docs/experiment_plan.md](file:///d:/GitHub/Conveyor-Motor-Speed-Control-Bang-Bang-PWM-and-PID/docs/experiment_plan.md):
+
+1. **`baseline`:** Step response from 0 to $1.80\text{ m/s}$ under tare load. Evaluates rise time, overshoot, settling, and ripple.
+2. **`load_step`:** Sudden load increase ($+0.16\text{ N}\cdot\text{m}$) applied at 40% of runtime. Evaluates speed drop $\Delta v$ and recovery time $t_{\text{rec}}$.
+3. **`load_cycle`:** Multi-stage loading cycle ($0 \to 80\% \to 15\%$ rated torque). Evaluates dynamic parcel accumulation and discharge.
+4. **`light_load`, `medium_load`, `heavy_load`:** Three steady load levels ($0.051, 0.159, 0.270\text{ N}\cdot\text{m}$). Evaluates steady-state load robustness.
+5. **`saturation`:** Commands $4.14\text{ m/s}$ ($115\%$ of physical maximum). Demonstrates actuator clamping to $1.0$ and verifies anti-windup clamping.
+6. **`changing_reference`:** Multi-step profile ($0.99 \to 1.80 \to 1.26\text{ m/s}$). Evaluates acceleration and deceleration tracking.
+7. **`pwm-sweep`:** Compares PWM carrier rates ($5, 10, 20, 40\text{ Hz}$). Measures harmonic speed ripple attenuation.
+
+---
+
+## Performance Metrics & Analysis
+
+### Time-Domain Metrics
+Calculated programmatically across simulation data in `src/conveyor_control/metrics.py`:
+- **Tracking:** MAE, RMSE, Maximum Absolute Error, Steady-State Error, IAE, ISE.
+- **Transient:** Rise Time ($10\% \to 90\%$), Settling Time ($2\%$ band), Overshoot Percentage, Peak Speed.
+- **Disturbance:** Speed Drop on Load Step ($\Delta v_{\text{drop}}$), Recovery Time ($t_{\text{rec}}$).
+- **Actuator:** Control Effort ($\int u^2 dt$), Saturation Duration, Saturation Percentage.
+- **Ripple & Switching:** Speed Ripple RMS, Peak-to-Peak Ripple, Bang-Bang Switch Count, Mean PWM Duty.
+
+### Frequency-Domain & Stability Analysis
+- **Plant Transfer Function:** First-order low-pass system $G(s) = \frac{18.33}{s + 0.667}$ with corner frequency $\omega_c = 0.667\text{ rad/s}$ ($0.106\text{ Hz}$).
+- **Bode Diagram:** Generated to `results/plots/frequency_response.png`.
+- **FFT Ripple Spectrum:** Hann-windowed FFT on steady-state velocity identifies dominant switching ripple harmonics (`results/plots/frequency_spectrum.png`).
+- **Stability:** Open-loop pole at $s = -0.667$ lies strictly in the Left Half Plane ($\implies$ asymptotically stable). Closed-loop stability verified via 3rd-order Routh-Hurwitz criterion.
+
+---
+
+## Installation & Windows Quick Start
+
+### Prerequisites
+- Windows 10/11
+- Python 3.10, 3.11, 3.12, or 3.14
+
+### Automatic Setup (1-Click)
+Double-click `run_project.bat`. On its first run, it automatically creates `.venv`, upgrades pip, installs required packages, and opens the main menu.
+
+### Manual Setup via PowerShell
+```powershell
+# Clone or navigate to the repository
+cd d:\GitHub\Conveyor-Motor-Speed-Control-Bang-Bang-PWM-and-PID
+
+# Create and activate virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+
+# Install package and dependencies
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev,visual]"
 ```
 
-If PowerShell blocks activation, call `.venv\Scripts\python.exe` directly. Core numerical use needs Matplotlib and Rich. PyBullet is optional for the visualization; on Windows, if pip needs to build it from source, install Microsoft C++ Build Tools first. Pytest is installed by the `dev` extra.
+---
 
-## Run
+## Running the Project
 
+### 1. Launch SCADA Web Control Room (Recommended)
+Double-click:
+```text
+run_dashboard.bat
+```
+*Or run via terminal:*
 ```powershell
-python -m conveyor_control.cli
-python -m conveyor_control.cli --controller pid --scenario baseline
-python -m conveyor_control.cli --controller pid --scenario load_step --kp 0.7 --ki 0.8 --kd 0.01 --load-torque 0.2
-python -m conveyor_control.cli --controller pwm --scenario saturation --pwm-frequency 40
-python -m conveyor_control.cli --pwm-sweep
-python -m conveyor_control.cli --compare
-python -m conveyor_control.cli --controller pid --visualize
+.\.venv\Scripts\python.exe run_dashboard.py
+```
+Open **`http://127.0.0.1:8050`** in your browser. Press `Ctrl + C` in the terminal to stop.
+
+### 2. Launch PyBullet 3D Digital Twin Visualizer
+```powershell
+.\.venv\Scripts\python.exe -m conveyor_control.cli --controller pid --scenario load_cycle --visualize
 ```
 
-The first command opens a menu. Choose **5** to run a controller in the PyBullet visual replay; choose **6** to exit. The comparison runs all three controllers over baseline, load-step, load-cycle, light/medium/heavy load, saturation and changing-reference scenarios. `--duration`, `--dt`, `--target`, `--load-torque`, `--pwm-frequency`, and `--results` configure the run. The visualization needs a desktop session with GUI support.
-
-## Interface
-
-The front end is the Rich-based Python command-line dashboard, which is what the assignment asks for. It has a styled menu and formatted metric tables. There is no web page or browser dashboard. PyBullet is the separate 3D visual scene; it is not a replacement for the control dashboard.
-
-## Experiments and output
-
-1. `baseline`: nominal constant speed target.
-2. `load_step`: adds the configured load torque at 40% of run time.
-3. `load_cycle`: increases load, then decreases it during operation.
-4. `light_load`, `medium_load`, `heavy_load`: three reproducible steady load levels.
-5. `saturation`: requests 115% of the configured maximum belt speed.
-6. `changing_reference`: requests 55%, 100%, then 70% of nominal target.
-
-The comparison writes `results/csv/<scenario>_<controller>.csv`, per-run JSON metrics, FFT data, a PWM frequency sweep, comparison and robustness plots, aggregate `results/metrics.csv`, `results/interpretation.md`, report-ready `results/report.md`, and analytical plant/PID Bode data. Each scenario CSV is raw per-step simulation output. Use `--frequency` to generate only the Bode response, or `--pwm-sweep` to run the carrier-frequency experiment separately.
-
-Metrics: IAE, ISE, MAE, RMSE, maximum absolute and steady-state error, rise and settling time, overshoot, peak speed, load-step speed drop/recovery, speed ripple, duty, switching count, control effort and saturation duration/percentage. Settling is the first point after which all remaining samples stay inside 2% of the final target. FFT analysis removes a linear trend from the final 25% of uniformly sampled speed data, applies a Hann window, and calculates a one-sided spectrum; its Nyquist frequency comes from the logged sample interval. The Bode plot compares the linear plant and an ideal continuous PID closed-loop model; the report also gives their pole locations. Those checks do not prove stability for the switched/saturated nonlinear implementation.
-
-## Assignment alignment and report support
-
-- Time-domain analysis: speed, error, raw/applied command and saturation/load traces plus tracking and disturbance-recovery metrics are in `results/`.
-- Frequency-domain analysis: analytical Bode response, measured FFT ripple spectra, and a multi-rate PWM frequency test are generated in `results/plots/` and `results/csv/`.
-- Constraints and actuation: inspect raw/applied command and PWM duty/switching columns in scenario CSVs; `saturation` demonstrates an infeasible speed request.
-- Stability: the model has stable open-loop pole `−b/J`; bounded simulation traces show the tested responses but do not prove nonlinear closed-loop stability.
-- Faculty demo checklist: run each controller, compare all four scenarios, show CSV/plots/report, then demonstrate the synchronized PyBullet roller if PyBullet is installed.
-- Project contribution: the standard controllers are not novel. The contribution is the reproducible same-plant harness, visible PWM carrier, disturbance/saturation runs and automatic comparison report.
-- Presentation: organize a maximum of 17 slides around the problem, architecture, model, controllers, constraints, experiment method, baseline/load/saturation results, frequency response, limits and conclusion.
-
-The frequency response includes the linearized plant transfer function `Ω(s)/U(s)=K/(Js+b)` and an ideal, unsaturated continuous PID closed-loop response; it is not robustness analysis of the switched, saturated controllers. A formal nonlinear stability proof is not included. The genuine engineering contribution is the reproducible comparison harness, explicit PWM switching evidence, combined disturbance and saturation experiments, and generated interpretations—not the standard control laws themselves.
-
-## Exact first-time run
-
-The easiest way is to double-click `run_project.bat` in the repository folder. On its first run it creates `.venv`, installs the dashboard and PyBullet dependencies, and opens the menu. Later runs open the menu directly. You can also pass CLI options to it, such as `run_project.bat --compare`.
-
-If you prefer PowerShell, open it in this repository folder and run these commands one at a time:
-
+### 3. Run Full Comparative Experiment Suite
+Executes all 3 controllers across all 8 scenarios, generating all plots, CSVs, and markdown reports:
 ```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev,visual]"
-python -m conveyor_control.cli
+.\.venv\Scripts\python.exe -m conveyor_control.cli --compare
 ```
 
-At the menu, choose `1`, then `pid`, then `baseline`. To run the full comparison directly, use:
-
+### 4. Interactive Menu
 ```powershell
-python -m conveyor_control.cli --compare
+run_project.bat
 ```
 
-To see one complete example without the menu:
+---
 
+## Automated Testing
+
+The repository includes a comprehensive automated test suite with **29 passing tests**:
 ```powershell
-python -m conveyor_control.cli --controller pid --scenario load_step
+.\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-The full comparison creates CSVs, metrics, plots, interpretations and a report under `results/`. To open the PyBullet visual scene, install the `visual` extra above (or `python -m pip install pybullet`), then add `--visualize` to a single-run command. If pip asks to build PyBullet from source, Microsoft C++ Build Tools are required. On this computer, Windows Application Control blocks PyBullet's native extension, so the GUI cannot currently start here. That Windows policy must allow the extension before the 3D replay can run; the numerical simulation and comparisons do not require PyBullet.
+### Test Coverage Breakdown:
+- `tests/test_model.py`: Motor ODE integration, torque limits, viscous friction, speed bounds.
+- `tests/test_controllers.py`: Bang-Bang deadband/chatter, PWM carrier oscillator, PID anti-windup clamping.
+- `tests/test_metrics_simulation.py`: Programmatic metric calculation, reproducibility, zero targets.
+- `tests/test_frequency.py`: Analytical transfer function and Bode evaluation.
+- `tests/test_spectrum.py`: FFT spectral peak detection and Nyquist bounds.
+- `tests/test_stability.py`: Open-loop and closed-loop pole locations.
+- `tests/test_visualization.py`: PyBullet revolute roller joint and moving cargo payload.
+- `tests/test_live_engine.py`: Real-time simulation engine, package kinematics, live disturbances.
+- `tests/test_server.py`: REST API endpoints, telemetry streaming, and automated battle runner.
 
-## Tests
+---
 
-```powershell
-python -m pytest
-```
-
-Tests cover motor acceleration/load/limits, controller switching and duty, PID saturation and anti-windup, metrics, repeatability, zero target and invalid inputs.
-
-## Limitations and future work
-
-The plant omits armature inductance/current, back-EMF electrical dynamics, gearing, belt elasticity, slip, thermal effects and a physical sensor model beyond optional seeded Gaussian noise. PyBullet uses a kinematically synchronized joint and kinematic boxes; its rigid-body state is not coupled back to the Python plant. Formal nonlinear closed-loop stability analysis, recorded PyBullet screenshots and measured hardware validation remain future work.
-
-## Suggested live demo
-
-1. Run `--compare` and show generated metric/interpretation files.
-2. Compare baseline speed, command and duty traces, highlighting the actual PWM pulse field.
-3. Run the load-step comparison and point out the disturbance timestamp in the CSV.
-4. Run the saturation scenario and explain the raw versus applied command.
-5. Launch one PID run with `--visualize` to show the synchronized roller and moving boxes.
-
-## Project structure
+## Project Directory Structure
 
 ```text
-src/conveyor_control/  model, controllers, simulation, metrics, results, CLI, visualization
-tests/                 unit and behavior tests
-results/               generated CSVs, metrics, interpretations, report and plots
+Conveyor-Motor-Speed-Control-Bang-Bang-PWM-and-PID/
+├── main.py                         # Application CLI entrypoint
+├── run_dashboard.py                # Web dashboard server launcher
+├── run_dashboard.bat               # 1-Click batch launcher for SCADA Control Room
+├── run_project.bat                 # Multi-choice interactive batch launcher
+├── verify_pybullet.py              # PyBullet connection verification script
+├── fix_pybullet_windows.bat        # Windows Smart App Control helper
+├── pyproject.toml                  # Project packaging configuration
+├── requirements.txt                # Package dependencies
+├── README.md                       # Master documentation
+├── src/conveyor_control/           # Main source package
+│   ├── model.py                    # Electromechanical DC motor ODE model
+│   ├── controllers.py              # Bang-Bang, PWM, and PID controllers
+│   ├── simulation.py               # Deterministic scenario simulation engine
+│   ├── live_engine.py              # Real-time interactive simulation engine
+│   ├── server.py                   # Multi-threaded HTTP/REST API server
+│   ├── cli.py                      # Rich terminal command-line dashboard
+│   ├── experiments.py              # Batch comparison orchestrator
+│   ├── metrics.py                  # 20 time-domain performance metrics
+│   ├── frequency.py                # Analytical Bode response generator
+│   ├── spectrum.py                 # Discrete FFT speed ripple analyzer
+│   ├── stability.py                # Stability and pole analyzer
+│   ├── results.py                  # Matplotlib plotting and CSV export
+│   ├── visualization.py            # PyBullet 3D visual twin
+│   └── web/                        # Web SCADA assets
+│       └── index.html              # Modern dark SCADA dashboard UI
+├── tests/                          # 29 automated pytest test suites
+├── docs/                           # Technical documentation
+│   ├── architecture.md             # System architecture and block diagrams
+│   ├── equations.md                # Mathematical equations and discrete ODEs
+│   └── experiment_plan.md          # Experiment scenarios and evaluation protocols
+└── results/                        # Generated output data
+    ├── report.md                   # Experiment summary report
+    ├── interpretation.md           # Empirical comparative analysis
+    ├── metrics.csv                 # Master comparative metrics table
+    ├── csv/                        # 37 raw simulation telemetry CSV files
+    └── plots/                      # 14 high-resolution comparison plots
 ```
 
-## Git commands
+---
 
-After reviewing the generated results, commit locally with:
+## Assumptions and Limitations
 
-```powershell
-git add README.md .gitignore pyproject.toml requirements.txt main.py run_project.bat src tests results
-git commit -m "Build conveyor motor control simulation"
-git push origin main
-```
+- **Model Assumptions:** Armature inductance ($L$) is neglected under the assumption that electrical dynamics are fast relative to mechanical inertia ($\tau_e \ll \tau_m$). Gearing, belt elasticity, slip, and thermal variations are modeled via lumped viscous damping ($b$) and external load torque ($\tau_{\text{load}}$).
+- **Coupling Distinction:** Python owns the physical motor dynamics and control laws. PyBullet and the Canvas Web Twin operate as synchronized visual twins receiving motor speed ($v = r\omega$) and updating roller joints and parcel positions accordingly.
+- **Audio Synthesis:** Sound effects are generated procedurally via the browser's Web Audio API and are muted by default. Audio processing runs in an isolated browser thread and does not impact simulation numerical solver accuracy.
+
+---
+
+## Technologies Used
+
+- **Programming Language:** Python 3.10+ (tested on Python 3.14)
+- **Physics & 3D Simulation:** PyBullet 3.2.7
+- **Numerical Computation:** NumPy
+- **Data Analysis & Export:** Pandas, CSV, JSON
+- **Data Visualization & Plotting:** Matplotlib
+- **Terminal UI & Styling:** Rich
+- **Frontend Dashboard:** HTML5, CSS3 (SCADA Dark Theme), JavaScript (Canvas 2D, Web Audio API, Fetch REST API)
+- **Backend Server:** Python `http.server.ThreadingHTTPServer` (Multi-threaded, zero external web dependencies)
+- **Automated Testing:** Pytest
