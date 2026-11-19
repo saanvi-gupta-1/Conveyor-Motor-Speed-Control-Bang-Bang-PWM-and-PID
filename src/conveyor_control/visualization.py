@@ -38,9 +38,9 @@ def create_conveyor_scene(p, pybullet_data, set_camera: bool = True) -> dict[str
     load_label = -1
     if set_camera:
         p.resetDebugVisualizerCamera(4.2, 35, -22, [0, 0, .55])
-        p.addUserDebugText("Revolute roller synchronized to Python motor; boxes follow belt speed",
+        p.addUserDebugText("Python motor drives conveyor roller; payload boxes set belt load",
                            [0, -.63, 1.25], textColorRGB=[.1, .1, .1], textSize=1.2)
-        load_label = p.addUserDebugText("Model load torque: 0.00 N m", [0, -.63, 1.13],
+        load_label = p.addUserDebugText("Boxes: 2 | Load: 0.12 N m", [0, -.63, 1.13],
                                         textColorRGB=[.75, .18, .12], textSize=1.1)
     return {"deck": deck, "driven_roller": driven_roller, "static_rollers": static_rollers,
             "motor_housing": motor_housing, "boxes": boxes, "angle": 0.0,
@@ -55,13 +55,20 @@ def advance_conveyor_scene(p, scene: dict[str, object], row: dict[str, float], d
     scene["angle"] = angle
     roller = int(scene["driven_roller"])
     p.resetJointState(roller, 0, angle, targetVelocity=-omega)
+    requested_count = int(row.get("payload_count", len(scene["boxes"])))
+    payload_count = max(0, min(len(scene["boxes"]), requested_count))
     if int(scene.get("load_label", -1)) >= 0:
-        p.addUserDebugText(f"Python model load torque: {row.get('load_torque_Nm', 0.0):.2f} N m",
+        p.addUserDebugText(f"Boxes: {payload_count} | Load: {row.get('load_torque_Nm', 0.0):.2f} N m",
                            [0, -.63, 1.13], textColorRGB=[.75, .18, .12], textSize=1.1,
                            replaceItemUniqueId=int(scene["load_label"]))
-    for body in scene["boxes"]:
+    for index, body in enumerate(scene["boxes"]):
+        if index >= payload_count:
+            p.resetBasePositionAndOrientation(body, [-10.0 - index, 0, .80], [0, 0, 0, 1])
+            p.resetBaseVelocity(body, [0, 0, 0], [0, 0, 0])
+            continue
         position, _ = p.getBasePositionAndOrientation(body)
-        x = position[0] + row["speed_m_s"] * dt * speed_scale
+        x = (-1.05 + index * .72 if position[0] < -5.0
+             else position[0] + row["speed_m_s"] * dt * speed_scale)
         if x > 1.35:
             x = -1.35
         p.resetBasePositionAndOrientation(body, [x, 0, .80], [0, 0, 0, 1])
@@ -105,6 +112,7 @@ def replay_pybullet(rows: list[dict[str, float]], speed_scale: float = 1.0) -> N
         raise RuntimeError("PyBullet GUI could not be opened")
     try:
         p.setRealTimeSimulation(0)
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
         scene = create_conveyor_scene(p, pybullet_data)
         dt = rows[1]["time_s"] - rows[0]["time_s"]
         if dt <= 0:

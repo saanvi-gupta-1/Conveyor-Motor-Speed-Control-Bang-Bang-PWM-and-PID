@@ -1,18 +1,18 @@
 {
-  "IAE_m_s_s": 26.578907668164067,
-  "ISE_m2_s": 61.59902145424992,
-  "MAE_m_s": 2.2147947779483705,
-  "RMSE_m_s": 2.2655424326898994,
+  "IAE_m_s_s": 29.099026831637083,
+  "ISE_m2_s": 72.7289666864196,
+  "MAE_m_s": 2.4248171658085487,
+  "RMSE_m_s": 2.4617480546433135,
   "maximum_absolute_error_m_s": 4.14,
-  "steady_state_error_m_s": 1.94111667157133,
+  "steady_state_error_m_s": 2.180994852854459,
   "rise_time_s": NaN,
   "settling_time_s": NaN,
   "overshoot_percent": 0.0,
-  "peak_speed_m_s": 2.1992717787760463,
+  "peak_speed_m_s": 1.9593512210913853,
   "speed_drop_on_load_m_s": NaN,
   "recovery_time_after_load_s": NaN,
-  "speed_ripple_rms_m_s": 0.0008187779436958173,
-  "speed_ripple_peak_to_peak_m_s": 0.0028883348403709874,
+  "speed_ripple_rms_m_s": 0.0007294567134741343,
+  "speed_ripple_peak_to_peak_m_s": 0.0025732437668757324,
   "control_effort": 12.0,
   "mean_pwm_duty": 1.0,
   "pwm_duty_ripple_rms": 0.0,
@@ -21,5 +21,5 @@
   "saturation_fraction": 0.0,
   "saturation_percent": 0.0,
   "dominant_ripple_frequency_hz": 0.3327787021630616,
-  "dominant_ripple_amplitude_m_s": 0.0003787895696503018
+  "dominant_ripple_amplitude_m_s": 0.0003374670711433462
 }

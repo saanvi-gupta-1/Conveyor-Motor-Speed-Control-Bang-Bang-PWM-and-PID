@@ -84,7 +84,7 @@ class LiveSimulationEngine:
     @property
     def total_load_torque(self) -> float:
         """Total load torque including base friction, package mass contribution, and manual disturbances."""
-        pkg_torque = sum(p.mass_kg * 0.025 for p in self.packages if -1.4 <= p.x <= 1.4)
+        pkg_torque = sum(p.mass_kg * 0.015 for p in self.packages if -1.4 <= p.x <= 1.4)
         return min(self.motor_params.max_load_torque, max(0.0, self.base_load_torque + pkg_torque + self.manual_load_torque))
 
     def step(self) -> Dict[str, Any]:
@@ -131,6 +131,7 @@ class LiveSimulationEngine:
                 "pwm_on": bool(out.switched_on),
                 "switch_count": int(out.switch_count),
                 "load_torque_Nm": round(load, 4),
+                "payload_count": len(self.packages),
                 "p_term": round(out.p_term, 4),
                 "i_term": round(out.i_term, 4),
                 "d_term": round(out.d_term, 4),

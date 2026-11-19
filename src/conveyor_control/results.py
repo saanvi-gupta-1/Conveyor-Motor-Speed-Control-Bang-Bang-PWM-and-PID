@@ -26,7 +26,7 @@ def plot_scenario(name: str, results: dict[str, dict[str, Any]], root: Path = Pa
     import matplotlib.pyplot as plt
     plot_dir = root / "plots"
     plot_dir.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(5, 1, figsize=(10, 13), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(6, 1, figsize=(10, 15), sharex=True, constrained_layout=True)
     fig.suptitle(f"{name.replace('_', ' ').title()} — controller comparison", fontsize=14, fontweight="bold")
     for controller, result in results.items():
         rows = result["rows"]
@@ -44,10 +44,16 @@ def plot_scenario(name: str, results: dict[str, dict[str, Any]], root: Path = Pa
     axes[2].set_ylabel("Raw / applied command")
     axes[3].set_ylabel("Duty / command fraction")
     axes[4].set_ylabel("Saturated (0/1)")
-    axes[4].set_xlabel("Time (s)")
     axes[4].set_ylim(-.05, 1.15)
     axes[4].legend(loc="upper left", ncol=3)
-    load_axis = axes[4].twinx()
+    axes[5].step([r["time_s"] for r in first], [r.get("payload_count", 0) for r in first],
+                 where="post", color="#79539a", label="active boxes")
+    axes[5].set_ylabel("Payload boxes")
+    axes[5].set_ylim(-.1, 3.5)
+    axes[5].set_yticks(range(4))
+    axes[5].set_xlabel("Time (s)")
+    axes[5].legend(loc="upper left")
+    load_axis = axes[5].twinx()
     load_axis.plot([r["time_s"] for r in first], [r["load_torque_Nm"] for r in first], "k--", label="load torque")
     load_axis.set_ylabel("Load torque (N·m)")
     load_axis.legend(loc="upper right")
@@ -237,7 +243,7 @@ def save_report(suite: dict[str, dict[str, Any]], config, root: Path = Path("res
     lines = ["# Simulation results report", "", "Generated from actual simulation samples.", "",
              "## Settings", "", "| Parameter | Value |", "|---|---:|",
              f"| Time step | {config.dt:g} s |", f"| Duration | {config.duration:g} s |",
-             f"| Nominal target | {config.target_speed:g} m/s |", f"| Load-step torque | {config.load_torque:g} N m |",
+             f"| Nominal target | {config.target_speed:g} m/s |", f"| Torque per payload box | {config.load_torque:g} N m |",
              f"| PWM carrier | {config.pwm_frequency_hz:g} Hz |", f"| Random seed | {config.seed} |",
              f"| Actuator range | [{config.actuator_min:g}, {config.actuator_max:g}] |",
              f"| Bang-Bang deadband | {config.bangbang_deadband:g} m/s |",
@@ -245,12 +251,12 @@ def save_report(suite: dict[str, dict[str, Any]], config, root: Path = Path("res
              f"| Viscous friction | {config.motor.viscous_friction:g} N m s/rad |",
              f"| Roller radius | {config.motor.roller_radius:g} m |", "", "## Metrics by scenario", ""]
     metric_names = list(next(iter(next(iter(suite.values())).values()))["metrics"])
-    descriptions = {"baseline": "Constant nominal target; nominal load.",
-                    "load_step": "Adds configured load torque at 40% of the run.",
-                    "load_cycle": "Load rises to 80% of limit at 35%, then drops to 15% at 70%.",
-                    "light_load": "Constant 17% of configured maximum load torque.",
-                    "medium_load": "Constant 53% of configured maximum load torque.",
-                    "heavy_load": "Constant 90% of configured maximum load torque.",
+    descriptions = {"baseline": "Constant nominal target with two active payload boxes.",
+                    "load_step": "Increases from one to three active boxes at 40% of the run.",
+                    "load_cycle": "Increases from one to three boxes at 35%, then removes one at 70%.",
+                    "light_load": "One active payload box.",
+                    "medium_load": "Two active payload boxes.",
+                    "heavy_load": "Three active payload boxes.",
                     "saturation": "Requests 115% of the configured maximum belt speed.",
                     "changing_reference": "Target steps through 55%, 100%, then 70% of nominal."}
     for scenario, controllers in suite.items():

@@ -23,3 +23,22 @@ def test_pybullet_scene_has_revolute_roller_and_moving_payload():
         assert after[2] == pytest.approx(.80, abs=.01)
     finally:
         pybullet.disconnect(client)
+
+
+def test_payload_count_changes_belt_boxes_and_positions():
+    client = pybullet.connect(pybullet.DIRECT)
+    try:
+        scene = create_conveyor_scene(pybullet, pybullet_data, set_camera=False)
+        row = {"omega_rad_s": 5.0, "speed_m_s": .4, "load_torque_Nm": .06, "payload_count": 1}
+        advance_conveyor_scene(pybullet, scene, row, .01)
+        hidden, _ = pybullet.getBasePositionAndOrientation(scene["boxes"][2])
+        assert hidden[0] < -5
+
+        row["payload_count"] = 3
+        row["load_torque_Nm"] = .18
+        advance_conveyor_scene(pybullet, scene, row, .01)
+        for box in scene["boxes"]:
+            position, _ = pybullet.getBasePositionAndOrientation(box)
+            assert -1.5 <= position[0] <= 1.5
+    finally:
+        pybullet.disconnect(client)

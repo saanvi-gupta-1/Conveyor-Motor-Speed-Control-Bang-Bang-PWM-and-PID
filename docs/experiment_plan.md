@@ -8,13 +8,15 @@ This document details the reproducible scenarios executed across Bang-Bang, PWM,
 
 | Scenario Name | Setpoint $v_{\text{target}}$ | Disturbance Schedule $\tau_{\text{load}}(t)$ | Primary Phenomenon Evaluated |
 | :--- | :--- | :--- | :--- |
-| **1. Baseline Speed Tracking** | $1.80\text{ m/s}$ (Constant) | $\tau_{\text{load}} = 0.0\text{ N}\cdot\text{m}$ | Unloaded step response, rise time, settling time, overshoot, steady-state ripple. |
-| **2. Load Step Disturbance** | $1.80\text{ m/s}$ (Constant) | $t < 4.8\text{s}: 0.0\text{ N}\cdot\text{m}$<br>$t \ge 4.8\text{s}: 0.16\text{ N}\cdot\text{m}$ | Sudden mass increase (e.g., heavy box dropped onto belt), speed drop $\Delta v$, recovery time $t_{\text{rec}}$. |
-| **3. Load Increase/Decrease Cycle** | $1.80\text{ m/s}$ (Constant) | $t < 4.2\text{s}: 0.0\text{ N}\cdot\text{m}$<br>$4.2\text{s} \le t < 8.4\text{s}: 0.24\text{ N}\cdot\text{m}$ ($80\%$ max)<br>$t \ge 8.4\text{s}: 0.045\text{ N}\cdot\text{m}$ | Dynamic loading cycle representing conveyor parcel accumulation and discharge. |
-| **4. Robustness under Constant Load** | $1.80\text{ m/s}$ (Constant) | Three steady levels:<br>Light: $0.051\text{ N}\cdot\text{m}$<br>Medium: $0.159\text{ N}\cdot\text{m}$<br>Heavy: $0.270\text{ N}\cdot\text{m}$ | Sensitivity of tracking accuracy and control effort across conveyor operational regimes. |
-| **5. Infeasible Actuator Saturation** | $4.14\text{ m/s}$ ($115\%$ of physical max) | $\tau_{\text{load}} = 0.0\text{ N}\cdot\text{m}$ | Actuator clamping ($u=1.0$), integral anti-windup prevention, saturation duration. |
-| **6. Changing Speed Reference** | $0 \to 0.99\text{ m/s} \to 1.80\text{ m/s} \to 1.26\text{ m/s}$ | $\tau_{\text{load}} = 0.0\text{ N}\cdot\text{m}$ | Multi-step tracking, velocity transitions, bidirectional acceleration/deceleration. |
-| **7. Multi-Rate PWM Frequency Sweep** | $1.80\text{ m/s}$ (Constant) | $\tau_{\text{load}} = 0.0\text{ N}\cdot\text{m}$ | Carrier rate comparison ($5\text{ Hz}, 10\text{ Hz}, 20\text{ Hz}, 40\text{ Hz}$) vs speed ripple RMS. |
+| **1. Baseline Speed Tracking** | $1.80\text{ m/s}$ (Constant) | Two boxes: $0.12\text{ N}\cdot\text{m}$ | Loaded step response, rise time, settling time, overshoot, and steady-state ripple. |
+| **2. Load Step Disturbance** | $1.80\text{ m/s}$ (Constant) | $t < 4.8\text{s}$: one box, $0.06\text{ N}\cdot\text{m}$<br>$t \ge 4.8\text{s}$: three boxes, $0.18\text{ N}\cdot\text{m}$ | Add payload during operation; measure speed drop $\Delta v$ and recovery time $t_{\text{rec}}$. |
+| **3. Load Increase/Decrease Cycle** | $1.80\text{ m/s}$ (Constant) | $t < 4.2\text{s}$: one box, $0.06\text{ N}\cdot\text{m}$<br>$4.2\text{s} \le t < 8.4\text{s}$: three boxes, $0.18\text{ N}\cdot\text{m}$<br>$t \ge 8.4\text{s}$: two boxes, $0.12\text{ N}\cdot\text{m}$ | Dynamic parcel accumulation and unloading. |
+| **4. Robustness under Constant Load** | $1.80\text{ m/s}$ (Constant) | Light: one box, $0.06\text{ N}\cdot\text{m}$<br>Medium: two boxes, $0.12\text{ N}\cdot\text{m}$<br>Heavy: three boxes, $0.18\text{ N}\cdot\text{m}$ | Compare tracking and control effort across payload counts. |
+| **5. Infeasible Actuator Saturation** | $4.14\text{ m/s}$ ($115\%$ of physical max) | Two boxes, $0.12\text{ N}\cdot\text{m}$ | Actuator clamping ($u=1.0$), integral anti-windup, and saturation duration. |
+| **6. Changing Speed Reference** | $0 \to 0.99\text{ m/s} \to 1.80\text{ m/s} \to 1.26\text{ m/s}$ | Two boxes, $0.12\text{ N}\cdot\text{m}$ | Multi-step tracking, velocity transitions, acceleration/deceleration. |
+| **7. Multi-Rate PWM Frequency Sweep** | $1.80\text{ m/s}$ (Constant) | Two boxes, $0.12\text{ N}\cdot\text{m}$ | Compare carrier rates ($5, 10, 20, 40\text{ Hz}$) against measured belt-speed ripple. |
+
+Batch simulations map each active box to $0.06\text{ N}\cdot\text{m}$ by default, configurable with `--load-torque`. The total load is capped at the motor limit. The same payload schedule is applied to all three controllers; CSV rows record both payload count and resulting torque. PyBullet replays the logged box count and motor speed. It is a synchronized visual twin: its contact forces do not feed back into the Python motor model.
 
 ---
 
@@ -32,13 +34,13 @@ This document details the reproducible scenarios executed across Bang-Bang, PWM,
 ## Empirical Findings Summary
 
 1. **PID Control:**
-   - **Strengths:** Zero steady-state error ($7.3 \times 10^{-5}\text{ m/s}$), lowest speed ripple ($0.00054\text{ m/s}$ peak-to-peak), full recovery after load step ($t_{\text{rec}} = 2.54\text{ s}$).
+   - **Strengths:** In the current generated results, the PID has the lowest baseline MAE ($0.1791\text{ m/s}$) and peak-to-peak speed ripple ($0.000263\text{ m/s}$). It recovers from the default one-to-three-box load step in $2.105\text{ s}$.
    - **Trade-off:** Requires anti-windup clamping to prevent large overshoot on high load desaturation.
 
 2. **PWM Control:**
-   - **Strengths:** Controlled carrier-frequency switching without linear amplifier power dissipation; speed ripple decreases inversely with carrier frequency ($20\text{ Hz} \implies 0.017\text{ m/s}$ ripple).
+   - **Strengths:** Explicit carrier-frequency switching. In the current sweep, peak-to-peak ripple drops from $0.0321\text{ m/s}$ at $5\text{ Hz}$ to $0.00734\text{ m/s}$ at $20\text{ Hz}$; the $40\text{ Hz}$ sample is $0.00864\text{ m/s}$, so the trend is not strictly monotonic.
    - **Trade-off:** Slight steady-state offset under heavy load due to lack of integral accumulation.
 
 3. **Bang-Bang Control:**
-   - **Strengths:** Fastest initial rise time ($1.87\text{ s}$); minimal computational complexity.
-   - **Trade-off:** Induces characteristic limit-cycle oscillation ($0.245\text{ m/s}$ peak-to-peak ripple); frequent actuator switching.
+   - **Strengths:** Simple relay control and fast rise time (tied at $2.48\text{ s}$ in the baseline run).
+   - **Trade-off:** It has the largest baseline peak-to-peak speed ripple in the current results ($0.166\text{ m/s}$).

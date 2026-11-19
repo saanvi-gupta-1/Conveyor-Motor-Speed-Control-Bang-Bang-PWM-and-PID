@@ -51,13 +51,21 @@ def test_load_drop_and_recovery_metrics_on_known_trace():
 
 def test_load_schedule_and_pwm_frequency_change_are_logged():
     from conveyor_control.controllers import PWMController
-    config = SimulationConfig(duration=2, dt=.005)
+    config = SimulationConfig(duration=2, dt=.005, target_speed=.5)
     light = run_simulation(PIDController(), "light_load", config)
     heavy = run_simulation(PIDController(), "heavy_load", config)
     assert heavy[-1]["speed_m_s"] < light[-1]["speed_m_s"]
+    assert light[-1]["payload_count"] == 1
+    assert heavy[-1]["payload_count"] == 3
+    assert heavy[-1]["load_torque_Nm"] > light[-1]["load_torque_Nm"]
     cycle = run_simulation(PIDController(), "load_cycle", config)
-    assert min(row["load_torque_Nm"] for row in cycle) == 0
-    assert max(row["load_torque_Nm"] for row in cycle) > cycle[-1]["load_torque_Nm"]
+    assert min(row["payload_count"] for row in cycle) == 1
+    assert max(row["payload_count"] for row in cycle) == 3
+    assert cycle[-1]["payload_count"] == 2
+    step = run_simulation(PIDController(), "load_step", config)
+    assert step[0]["payload_count"] == 1
+    assert step[-1]["payload_count"] == 3
+    assert step[-1]["load_torque_Nm"] > step[0]["load_torque_Nm"]
     slow = run_simulation(PWMController(frequency_hz=10), config=config)
     fast = run_simulation(PWMController(frequency_hz=40), config=config)
     assert slow[10]["pwm_frequency_hz"] == 10

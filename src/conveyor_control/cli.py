@@ -57,7 +57,10 @@ def main(argv: list[str] | None = None) -> int:
         elif choice == "1":
             selected = input("Controller [bang-bang/pwm/pid] (pid): ").strip().lower() or "pid"
             scenario = input("Scenario [baseline/load_step/load_cycle/light_load/medium_load/heavy_load/saturation/changing_reference] (baseline): ").strip() or "baseline"
-            argv = ["--controller", selected, "--scenario", scenario]
+            target = input("Target belt speed in m/s (1.8): ").strip() or "1.8"
+            load_torque = input("Load torque per box in N m (0.06): ").strip() or "0.06"
+            argv = ["--controller", selected, "--scenario", scenario,
+                    "--target", target, "--load-torque", load_torque]
             if selected == "pwm":
                 argv.extend(["--pwm-frequency", input("PWM frequency Hz (20): ").strip() or "20"])
             if selected == "bang-bang":
@@ -65,8 +68,6 @@ def main(argv: list[str] | None = None) -> int:
             if selected == "pid":
                 for name, default in (("kp", ".7"), ("ki", ".8"), ("kd", ".01")):
                     argv.extend([f"--{name}", input(f"{name.upper()} ({default}): ").strip() or default])
-            if scenario == "load_step":
-                argv.extend(["--load-torque", input("Load torque N m (.16): ").strip() or ".16"])
         elif choice == "3":
             argv = ["--frequency"]
         elif choice == "4":
@@ -74,7 +75,10 @@ def main(argv: list[str] | None = None) -> int:
         elif choice == "5":
             selected = input("Controller [bang-bang/pwm/pid] (pid): ").strip().lower() or "pid"
             scenario = input("Scenario [baseline/load_step/load_cycle/light_load/medium_load/heavy_load/saturation/changing_reference] (baseline): ").strip() or "baseline"
-            argv = ["--controller", selected, "--scenario", scenario, "--visualize"]
+            target = input("Target belt speed in m/s (1.8): ").strip() or "1.8"
+            load_torque = input("Load torque per box in N m (0.06): ").strip() or "0.06"
+            argv = ["--controller", selected, "--scenario", scenario,
+                    "--target", target, "--load-torque", load_torque, "--visualize"]
         elif choice == "6":
             return 0
         else:
@@ -89,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--duration", type=float, default=12.0)
     parser.add_argument("--dt", type=float, default=.005)
     parser.add_argument("--target", type=float, default=1.8, help="belt target speed in m/s")
-    parser.add_argument("--load-torque", type=float, default=.16, help="load-step torque in N m")
+    parser.add_argument("--load-torque", type=float, default=.06, help="modeled load torque per payload box in N m")
     parser.add_argument("--pwm-frequency", type=float, default=20.0, help="PWM carrier frequency in Hz")
     parser.add_argument("--deadband", type=float, default=.12, help="Bang-Bang speed deadband in m/s")
     parser.add_argument("--actuator-min", type=float, default=0.0, help="normalized actuator lower limit")

@@ -36,7 +36,7 @@ The system features both an **interactive SCADA Web Control Room Dashboard** wit
 - **Time & Frequency Domain Analysis:** 20 quantitative metrics (IAE, ISE, RMSE, Settling, Rise, Ripple), analytical Bode plots, and Hann-windowed FFT speed ripple spectra.
 - **Dual Visual Digital Twins:**
   1. *SCADA Web Twin:* High-fps HTML5 Canvas conveyor with spinning rollers, belt chevrons, moving packages, live multi-trace charts, controller battle mode, and Web Audio API synthesizer.
-  2. *PyBullet 3D Twin:* Physics-based scene with a driven roller revolute joint (`p.JOINT_REVOLUTE`), cylindrical motor housing, conveyor deck, and payload boxes.
+  2. *PyBullet 3D Twin:* Synchronized conveyor scene with a driven roller revolute joint (`p.JOINT_REVOLUTE`), cylindrical motor housing, conveyor deck, and the active payload boxes.
 - **Automated Results & Reports:** 14 Matplotlib plots, 37 CSV logs, 28 JSON metric files, master `metrics.csv`, and empirical data-driven interpretations.
 
 ---
@@ -105,7 +105,7 @@ All three controllers share a standardized interface (`update(target, measured, 
 ### 1. Bang-Bang Controller (Relay Actuation)
 Two-position threshold controller with deadband $\Delta = 0.12\text{ m/s}$ and minimum dwell time $\tau_{\text{dwell}} = 0.04\text{ s}$ to prevent high-frequency chatter:
 $$u(t) = \begin{cases} u_{\text{max}} & e(t) > \Delta \\ u_{\text{min}} & e(t) < -\Delta \\ u(t^-) & |e(t)| \le \Delta \end{cases}$$
-- **Characteristics:** Fast rise time ($1.87\text{ s}$), zero modulation complexity, but induces an orbitally stable limit cycle with steady-state speed ripple ($0.245\text{ m/s}$ p-p).
+- **Characteristics:** Fast step response, but relay switching creates a visible speed ripple. The measured baseline peak-to-peak ripple is reported with the current run in `results/report.md`.
 
 ### 2. PWM Controller (Carrier-Based Switched Actuation)
 Proportional error-to-duty mapping driving an explicit square-wave carrier oscillator ($f_{\text{pwm}} = 20\text{ Hz}$):
@@ -118,7 +118,7 @@ Discrete PID with low-pass filtered derivative ($\tau_d = 0.025\text{ s}$) and c
 $$u_{\text{raw}}(t) = K_p e(t) + K_i \int_0^t e(\tau) d\tau + K_d \frac{de_f(t)}{dt}$$
 - **Anti-Windup Logic:** Halts integration when the actuator is saturated ($u_{\text{raw}} \notin [0, 1]$) and the error points deeper into the limit.
 - **Default Gains:** $K_p = 0.70$, $K_i = 0.80$, $K_d = 0.010$.
-- **Characteristics:** Zero steady-state error ($7.3 \times 10^{-5}\text{ m/s}$), lowest speed ripple ($0.00054\text{ m/s}$ p-p), and complete disturbance recovery ($t_{\text{rec}} = 2.54\text{ s}$).
+- **Characteristics:** The measured baseline steady-state error and ripple, plus load-step recovery, are generated in `results/report.md`; results depend on the selected payload torque and run settings.
 
 ---
 
@@ -158,13 +158,15 @@ python -m conveyor_control.cli
 
 The suite includes 7 repeatable scenarios defined in [docs/experiment_plan.md](file:///d:/GitHub/Conveyor-Motor-Speed-Control-Bang-Bang-PWM-and-PID/docs/experiment_plan.md):
 
-1. **`baseline`:** Step response from 0 to $1.80\text{ m/s}$ under tare load. Evaluates rise time, overshoot, settling, and ripple.
-2. **`load_step`:** Sudden load increase ($+0.16\text{ N}\cdot\text{m}$) applied at 40% of runtime. Evaluates speed drop $\Delta v$ and recovery time $t_{\text{rec}}$.
-3. **`load_cycle`:** Multi-stage loading cycle ($0 \to 80\% \to 15\%$ rated torque). Evaluates dynamic parcel accumulation and discharge.
-4. **`light_load`, `medium_load`, `heavy_load`:** Three steady load levels ($0.051, 0.159, 0.270\text{ N}\cdot\text{m}$). Evaluates steady-state load robustness.
+1. **`baseline`:** Step response from 0 to $1.80\text{ m/s}$ with two carried boxes. Evaluates rise time, overshoot, settling, and ripple.
+2. **`load_step`:** Increases the payload from one box to three at 40% of runtime. Torque is computed from box count and configured torque per box; speed drop and recovery are measured.
+3. **`load_cycle`:** Adds boxes from one to three, then removes one. Logged payload count and load torque change together.
+4. **`light_load`, `medium_load`, `heavy_load`:** One, two, and three boxes respectively. The same box-to-torque rule is used for all controllers.
 5. **`saturation`:** Commands $4.14\text{ m/s}$ ($115\%$ of physical maximum). Demonstrates actuator clamping to $1.0$ and verifies anti-windup clamping.
 6. **`changing_reference`:** Multi-step profile ($0.99 \to 1.80 \to 1.26\text{ m/s}$). Evaluates acceleration and deceleration tracking.
 7. **`pwm-sweep`:** Compares PWM carrier rates ($5, 10, 20, 40\text{ Hz}$). Measures harmonic speed ripple attenuation.
+
+In the batch experiments, each active box contributes the configured torque per box (default $0.06\text{ N}\cdot\text{m}$); total load is capped at the motor's $0.30\text{ N}\cdot\text{m}$ limit. Thus one, two, and three boxes apply $0.06$, $0.12$, and $0.18\text{ N}\cdot\text{m}$. The same payload schedule is run for Bang-Bang, PWM, and PID, and the CSV records both `payload_count` and `load_torque_Nm`. PyBullet replays those samples and displays the matching boxes and load. Box mass is mapped to torque in this reduced-order model; contact/friction forces are not fed back from PyBullet into the motor equations.
 
 ---
 
@@ -244,7 +246,7 @@ run_project.bat
 
 ## Automated Testing
 
-The repository includes a comprehensive automated test suite with **29 passing tests**:
+The repository includes an automated test suite with **31 passing tests**:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
