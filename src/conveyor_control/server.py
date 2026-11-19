@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import math
 import mimetypes
 from pathlib import Path
 import subprocess
@@ -24,6 +25,26 @@ engine = LiveSimulationEngine(dt=0.01)
 
 # Path to static frontend files
 STATIC_DIR = Path(__file__).parent / "web"
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively convert float NaN/Inf to None so json.dumps produces strict RFC 8259 JSON (null)."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return tuple(_sanitize_for_json(v) for v in obj)
+    return obj
+
+
+def _dumps(data: Any) -> bytes:
+    """Serialize data to strictly valid JSON bytes with nulls for non-finite numbers."""
+    return json.dumps(_sanitize_for_json(data)).encode("utf-8")
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -52,7 +73,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/telemetry":
             data = engine.get_telemetry()
             self._set_headers("application/json")
-            self.wfile.write(json.dumps(data).encode("utf-8"))
+            self.wfile.write(_dumps(data))
             return
 
         elif path == "/api/export-csv":
@@ -130,7 +151,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 resp = {"error": f"Unknown action: {action}"}
 
             self._set_headers("application/json")
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(_dumps(resp))
             return
 
         elif path == "/api/control":
@@ -153,7 +174,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             resp = {"status": "updated", "telemetry": engine.get_telemetry()}
             self._set_headers("application/json")
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(_dumps(resp))
             return
 
         elif path == "/api/compare":
@@ -177,7 +198,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             interp = interpretation(results)
             resp = {"scenario": scenario, "results": results, "interpretation": interp}
             self._set_headers("application/json")
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(_dumps(resp))
             return
 
         elif path == "/api/experiment":
@@ -197,7 +218,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             resp = {"experiment": exp_id, "results": results, "interpretation": interpretation(results)}
             self._set_headers("application/json")
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(_dumps(resp))
             return
 
         self.send_error(404, "Endpoint not found")

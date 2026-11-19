@@ -61,9 +61,25 @@ def test_server_compare_endpoint(server_instance):
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req) as resp:
         assert resp.status == 200
-        data = json.loads(resp.read().decode("utf-8"))
+        raw_text = resp.read().decode("utf-8")
+        data = json.loads(raw_text)
         assert "results" in data
         assert "pid" in data["results"]
         assert "pwm" in data["results"]
         assert "bang-bang" in data["results"]
         assert "interpretation" in data
+
+
+def test_server_experiment_scenarios(server_instance):
+    for scenario in ("baseline", "load_step", "load_cycle", "saturation", "changing_reference"):
+        url = f"{server_instance}/api/experiment"
+        payload = json.dumps({"experiment": scenario}).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            raw_text = resp.read().decode("utf-8")
+            # Strict verification: must be parseable by standard JSON parser without NaNs
+            data = json.loads(raw_text)
+            assert "results" in data
+            assert "pid" in data["results"]
+            assert "interpretation" in data

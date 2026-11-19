@@ -1240,6 +1240,11 @@
       };
     });
 
+    function fmt(val, decimals = 2, fallback = 'n/a') {
+      if (val === null || val === undefined || isNaN(val)) return fallback;
+      return Number(val).toFixed(decimals);
+    }
+
     // Controller Battle Execution
     document.getElementById('btnRunBattle').onclick = async () => {
       const area = document.getElementById('battleResultsArea');
@@ -1250,7 +1255,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scenario: 'baseline' })
         });
-        const data = await res.json();
+        const rawText = await res.text();
+        const data = JSON.parse(rawText.replace(/\bNaN\b/g, 'null').replace(/\bInfinity\b/g, 'null'));
 
         let html = '<table class="comp-table"><thead><tr><th>Controller</th><th>MAE (m/s)</th><th>RMSE</th><th>Rise (s)</th><th>Settling (s)</th><th>Overshoot %</th><th>Effort</th><th>Rank</th></tr></thead><tbody>';
         const controllers = ['pid', 'pwm', 'bang-bang'];
@@ -1259,12 +1265,12 @@
           const badgeClass = idx === 0 ? 'rank-1' : (idx === 1 ? 'rank-2' : 'rank-3');
           html += `<tr>
             <td style="font-weight: 700; color: var(--cyan-bright);">${name.toUpperCase()}</td>
-            <td>${m.MAE_m_s.toFixed(4)}</td>
-            <td>${m.RMSE_m_s.toFixed(4)}</td>
-            <td>${isNaN(m.rise_time_s) ? 'n/a' : m.rise_time_s.toFixed(2)}</td>
-            <td>${isNaN(m.settling_time_s) ? 'n/a' : m.settling_time_s.toFixed(2)}</td>
-            <td>${m.overshoot_percent.toFixed(1)}%</td>
-            <td>${m.control_effort.toFixed(2)}</td>
+            <td>${fmt(m.MAE_m_s, 4)}</td>
+            <td>${fmt(m.RMSE_m_s, 4)}</td>
+            <td>${fmt(m.rise_time_s, 2)}</td>
+            <td>${fmt(m.settling_time_s, 2)}</td>
+            <td>${fmt(m.overshoot_percent, 1)}%</td>
+            <td>${fmt(m.control_effort, 2)}</td>
             <td><span class="rank-badge ${badgeClass}">#${idx + 1}</span></td>
           </tr>`;
         });
@@ -1288,18 +1294,19 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ experiment: expId })
           });
-          const data = await res.json();
+          const rawText = await res.text();
+          const data = JSON.parse(rawText.replace(/\bNaN\b/g, 'null').replace(/\bInfinity\b/g, 'null'));
           let html = `<h4 style="color: var(--cyan-bright); text-transform: uppercase; margin-bottom: 8px;">Experiment: ${expId}</h4>`;
           html += '<table class="comp-table"><thead><tr><th>Controller</th><th>MAE</th><th>RMSE</th><th>Overshoot</th><th>Saturation %</th><th>Ripple RMS</th></tr></thead><tbody>';
           ['pid', 'pwm', 'bang-bang'].forEach(name => {
             const m = data.results[name].metrics;
             html += `<tr>
-              <td>${name.toUpperCase()}</td>
-              <td>${m.MAE_m_s.toFixed(4)}</td>
-              <td>${m.RMSE_m_s.toFixed(4)}</td>
-              <td>${m.overshoot_percent.toFixed(1)}%</td>
-              <td>${m.saturation_percent.toFixed(1)}%</td>
-              <td>${m.speed_ripple_rms_m_s.toFixed(5)}</td>
+              <td style="font-weight: 700; color: var(--cyan-bright);">${name.toUpperCase()}</td>
+              <td>${fmt(m.MAE_m_s, 4)}</td>
+              <td>${fmt(m.RMSE_m_s, 4)}</td>
+              <td>${fmt(m.overshoot_percent, 1)}%</td>
+              <td>${fmt(m.saturation_percent, 1)}%</td>
+              <td>${fmt(m.speed_ripple_rms_m_s, 5)}</td>
             </tr>`;
           });
           html += '</tbody></table>';
